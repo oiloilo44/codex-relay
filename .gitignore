@@ -1,0 +1,26 @@
+# Build and local test output
+/bin/
+/obj/
+/dist/
+/artifacts/
+**/test-data/
+**/demo-data/
+*.exe
+*.dll
+*.pdb
+*.zip
+
+# Credentials and local settings
+auth.json
+vault.bin*
+credentials.json
+*.pending
+*.bak
+.env
+.env.*
+!.env.example
+*.user
+*.suo
+.vs/
+.idea/
+.vscode/
