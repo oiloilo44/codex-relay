@@ -369,13 +369,22 @@ namespace CodexRelay {
             var missing=new StartupRegistration(store,Path.Combine(folder,"missing.exe"));failed=false;try{missing.SetEnabled(true);}catch(InvalidOperationException){failed=true;}Check(failed&&store.Value==registration.Command,"missing executable never replaces working startup entry");
             var vault=new Vault(Path.Combine(root,"startup-preferences"));var settings=vault.Data.Settings;
             Check(!settings.StartWithWindows.HasValue&&!Json.Read<Settings>("{}").StartWithWindows.HasValue,"old vaults have unknown startup preference for migration");
-            store.Value="\"C:\\old relay\\CodexRelay.exe\" --tray";registration.Reconcile(settings,()=>vault.Save());
-            Check(settings.StartWithWindows==true&&new Vault(vault.DirectoryPath).Data.Settings.StartWithWindows==true&&store.Value==registration.Command,"legacy startup registration is persisted and moved to the current executable");
+            string oldCommand="\"C:\\old relay\\CodexRelay.exe\" --tray";store.Value=oldCommand;int prompts=0;
+            registration.Reconcile(settings,()=>vault.Save(),change=>{prompts++;Check(change.RegisteredCommand==oldCommand&&change.CurrentExecutable==exe,"startup consent includes the exact existing command and current executable");return false;});
+            Check(settings.StartWithWindows==true&&new Vault(vault.DirectoryPath).Data.Settings.StartWithWindows==true&&store.Value==oldCommand,"declining relocation preserves legacy startup registration and enabled preference");
+            registration.Reconcile(new Vault(vault.DirectoryPath).Data.Settings,()=>{throw new Exception("unchanged decline should not save");},change=>{prompts++;return true;});
+            Check(prompts==1&&store.Value==oldCommand,"declined path pair is remembered across reloads without registry writes");
+            store.Value="\"C:\\another relay\\CodexRelay.exe\" --tray";registration.Reconcile(settings,()=>vault.Save(),change=>{prompts++;return false;});
+            Check(prompts==2&&settings.DeclinedStartupChanges.Count==2,"a different path pair asks separately and retains earlier refusals");
+            store.Value=oldCommand;
+            registration.ChangePath(settings,()=>vault.Save(),change=>{prompts++;return true;});
+            Check(prompts==3&&store.Value==registration.Command&&settings.DeclinedStartupChanges.Count==1,"explicit path menu approves the chosen pair while remembering other declined pairs");
             int writes=store.Writes;bool saved=false;Check(!registration.Reconcile(settings,()=>saved=true)&&!saved&&store.Writes==writes,"matching startup path requires no registry or vault write");
-            store.Value=null;registration.Reconcile(settings,()=>vault.Save());Check(store.Value==registration.Command,"saved enabled preference restores a missing startup entry");
+            store.Value=registration.Command.ToUpperInvariant();registration.Reconcile(settings,()=>vault.Save(),change=>{throw new Exception("case-only difference must not prompt");});Check(store.Writes==writes,"case-only path difference leaves registration untouched");
+            store.Value=null;registration.Reconcile(settings,()=>vault.Save());Check(store.Value==null&&settings.StartWithWindows==false&&store.Writes==writes,"external removal is respected without silently restoring startup");
             registration.SetPreference(settings,false,()=>vault.Save());Check(settings.StartWithWindows==false&&new Vault(vault.DirectoryPath).Data.Settings.StartWithWindows==false&&!registration.IsEnabled,"menu disable persists preference and removes registration");
             registration.Reconcile(settings,()=>vault.Save());Check(!registration.IsEnabled,"disabled preference stays disabled on subsequent launches");
-            store.Value="older registration";registration.Reconcile(settings,()=>vault.Save());Check(!registration.IsEnabled,"saved disabled preference clears a stale registration");
+            store.Value="older registration";int removes=store.Removes;registration.Reconcile(settings,()=>vault.Save(),change=>false);Check(registration.IsEnabled&&settings.StartWithWindows==true&&store.Value=="older registration"&&store.Removes==removes,"observing an existing registration never silently removes it");
             registration.SetPreference(settings,true,()=>vault.Save());Check(new Vault(vault.DirectoryPath).Data.Settings.StartWithWindows==true&&store.Value==registration.Command,"menu enable persists preference and registers current path");
             failed=false;try{registration.SetPreference(settings,false,()=>{throw new IOException("simulated vault write failure");});}catch(IOException){failed=true;}
             Check(failed&&settings.StartWithWindows==true&&store.Value==registration.Command&&new Vault(vault.DirectoryPath).Data.Settings.StartWithWindows==true,"failed vault save restores prior enabled preference and registry command");
@@ -384,6 +393,14 @@ namespace CodexRelay {
             var fresh=new Settings();store.Value=null;registration.Reconcile(fresh,()=>{});Check(fresh.StartWithWindows==false&&!registration.IsEnabled,"fresh install migrates to disabled without registering itself");
             var legacy=new Settings();store.Value="old startup command";failed=false;try{registration.Reconcile(legacy,()=>{throw new IOException("simulated migration failure");});}catch(IOException){failed=true;}
             Check(failed&&!legacy.StartWithWindows.HasValue&&store.Value=="old startup command","migration save failure leaves legacy registration unchanged");
+            settings.StartWithWindows=true;settings.DeclinedStartupChanges=null;store.Value=oldCommand;
+            failed=false;try{registration.Reconcile(settings,()=>{throw new IOException("decline save failure");},change=>false);}catch(IOException){failed=true;}
+            Check(failed&&store.Value==oldCommand&&settings.DeclinedStartupChanges==null,"decline persistence failure preserves the original setting and registration");
+            failed=false;try{registration.ChangePath(settings,()=>{throw new IOException("approval save failure");},change=>true);}catch(IOException){failed=true;}
+            Check(failed&&store.Value==oldCommand&&settings.StartWithWindows==true&&settings.DeclinedStartupChanges==null,"failed approved relocation rolls registry and preference back together");
+            writes=store.Writes;failed=false;try{registration.ChangePath(settings,()=>vault.Save(),change=>{store.Value="concurrent registration";return true;});}catch(InvalidOperationException){failed=true;}
+            Check(failed&&store.Value=="concurrent registration"&&store.Writes==writes,"registration changed during consent is never overwritten");
+            store.Value=oldCommand;prompts=0;registration.Reconcile(settings,()=>vault.Save());Check(store.Value==oldCommand&&prompts==0,"no confirmation callback means no startup mutation");
         }
         static void RotationRefusalChecks(){
             var vault=new Vault(Path.Combine(root,"rotation-refusal-vault"));vault.Data.Settings.Overlay=false;vault.Data.Settings.AutoRotate=true;
@@ -416,6 +433,8 @@ namespace CodexRelay {
         static void HiddenRender(){
             Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
             RotationRefusalChecks();
+            StartupDialogChecks();
+            ScrollbarChecks();
             var vault=new Vault(Path.Combine(root,"hidden-ui-vault"));vault.Data.Settings.DarkMode=false;long now=Clock.Now;
             for(int i=0;i<2;i++){var a=vault.Put(Raw("preview"+i),new[]{"업무 계정","개인 계정"}[i]);a.Usage=Usage.Parse(Limits(new[]{64,18}[i],new[]{72,41}[i],now),now);}
             var http=new FakeHttp{Handler=r=>{throw new Exception("Hidden rendering must not use network");}};
@@ -437,7 +456,7 @@ namespace CodexRelay {
                 var toggles=Controls(form).OfType<CheckBox>().ToArray();var dark=toggles.Single(c=>(string)c.Tag=="다크 모드");
                 ownedMenus=new[]{MainField<ContextMenuStrip>(form,"appMenu"),MainField<ContextMenuStrip>(form,"accountMenu"),MainField<ContextMenuStrip>(form,"trayMenu")};
                 Check(ownedMenus.All(m=>m.Renderer is ThemeMenuRenderer&&!m.ShowImageMargin&&m.BackColor==Theme.Panel&&m.ForeColor==Theme.Text)&&ownedMenus[0].ShowCheckMargin&&!ownedMenus[1].ShowCheckMargin&&!ownedMenus[2].ShowCheckMargin,"all menus share light theme with check gutter only for startup menu");
-                var startupItem=MainField<ToolStripMenuItem>(form,"startupItem");CallMain(form,"RefreshStartupState");Check(!startupItem.Checked&&startupItem.Enabled,"startup menu is unchecked when absent");startupStore.Value="registered";CallMain(form,"RefreshStartupState");Check(startupItem.Checked,"startup menu check follows registered state");startupStore.Value=null;CallMain(form,"RefreshStartupState");
+                var startupItem=MainField<ToolStripMenuItem>(form,"startupItem");var startupPathItem=MainField<ToolStripMenuItem>(form,"startupPathItem");CallMain(form,"RefreshStartupState");Check(!startupItem.Checked&&startupItem.Enabled&&!startupPathItem.Enabled,"startup menu is unchecked and relocation disabled when absent");startupStore.Value="registered";CallMain(form,"RefreshStartupState");Check(startupItem.Checked&&startupPathItem.Enabled,"startup menu offers explicit relocation for an existing different path");startupStore.Value="\""+Application.ExecutablePath+"\" --tray";CallMain(form,"RefreshStartupState");Check(startupItem.Checked&&!startupPathItem.Enabled,"matching current path disables unnecessary relocation");startupStore.Value=null;CallMain(form,"RefreshStartupState");
                 var accountContext=ownedMenus[1];typeof(MainForm).GetField("menuAccount",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).SetValue(form,vault.Data.Accounts[0]);
                 vault.Data.Accounts[1].NeedsLogin=true;var state=typeof(MainForm).GetMethod("AccountState",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).Invoke(form,new object[]{vault.Data.Accounts[1]});
                 Check((string)state=="재로그인 필요","authentication failure is displayed separately from quota query failure");vault.Data.Accounts[1].NeedsLogin=false;

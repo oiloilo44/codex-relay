@@ -46,12 +46,13 @@ namespace CodexRelay {
         public bool DarkMode { get; set; }
         // Null identifies vaults written before startup preference persistence existed.
         public bool? StartWithWindows { get; set; }
+        public List<string> DeclinedStartupChanges { get; set; }
         int overlayTransparency=50;
         public int OverlayTransparency { get { return overlayTransparency; } set { overlayTransparency=Math.Max(0,Math.Min(90,value)); } }
         [ScriptIgnore] public double OverlayOpacity { get { return (100-OverlayTransparency)/100d; } }
         public int OverlayX { get; set; }
         public int OverlayY { get; set; }
-        public Settings() { Overlay=true;DarkMode=true;OverlayX=-1; OverlayY=-1; }
+        public Settings() { Overlay=true;DarkMode=true;OverlayX=-1; OverlayY=-1;DeclinedStartupChanges=new List<string>(); }
     }
     public sealed class VaultData {
         public int Version { get; set; }

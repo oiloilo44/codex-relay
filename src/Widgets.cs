@@ -91,5 +91,9 @@ namespace CodexRelay {
         }
         protected override void Dispose(bool disposing){if(disposing){small.Dispose();number.Dispose();}base.Dispose(disposing);}
     }
-    internal sealed class SmoothGrid : DataGridView {public SmoothGrid(){DoubleBuffered=true;}}
+    internal sealed class SmoothGrid : DataGridView {
+        internal Action<int> WheelScroll;
+        public SmoothGrid(){DoubleBuffered=true;}
+        protected override void OnMouseWheel(MouseEventArgs e){if(WheelScroll==null){base.OnMouseWheel(e);return;}WheelScroll(e.Delta);var handled=e as HandledMouseEventArgs;if(handled!=null)handled.Handled=true;}
+    }
 }

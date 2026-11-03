@@ -11,12 +11,12 @@ using System.Windows.Forms;
 
 namespace CodexRelay {
     internal static class Theme {
-        public static Color Back,Panel,Line,Text,Muted,Accent,Warning;
+        public static Color Back,Panel,Line,Text,Muted,Accent,Warning,ScrollTrack,ScrollThumb,ScrollHover;
         public static bool IsDark;
         static Theme(){SetDark(false);}
         static readonly Icon appIcon=LoadIcon();
         static Icon LoadIcon(){using(var stream=typeof(Theme).Assembly.GetManifestResourceStream("CodexRelay.AppIcon.ico")){if(stream==null)return SystemIcons.Application;using(var icon=new Icon(stream))return (Icon)icon.Clone();}}
-        public static void SetDark(bool dark){IsDark=dark;Back=ColorTranslator.FromHtml(dark?"#23262B":"#FFFFFF");Panel=ColorTranslator.FromHtml(dark?"#2C3036":"#F5F6F8");Line=ColorTranslator.FromHtml(dark?"#3A3F46":"#E3E5E8");Text=ColorTranslator.FromHtml(dark?"#E6E8EB":"#1F2328");Muted=ColorTranslator.FromHtml(dark?"#A7AEB8":"#626B77");Accent=ColorTranslator.FromHtml(dark?"#7FB3A8":"#2563EB");Warning=ColorTranslator.FromHtml(dark?"#E0A458":"#B45309");}
+        public static void SetDark(bool dark){IsDark=dark;Back=ColorTranslator.FromHtml(dark?"#23262B":"#FFFFFF");Panel=ColorTranslator.FromHtml(dark?"#2C3036":"#F5F6F8");Line=ColorTranslator.FromHtml(dark?"#3A3F46":"#E3E5E8");Text=ColorTranslator.FromHtml(dark?"#E6E8EB":"#1F2328");Muted=ColorTranslator.FromHtml(dark?"#A7AEB8":"#626B77");Accent=ColorTranslator.FromHtml(dark?"#7FB3A8":"#2563EB");Warning=ColorTranslator.FromHtml(dark?"#E0A458":"#B45309");ScrollTrack=Panel;ScrollThumb=ColorTranslator.FromHtml(dark?"#69727E":"#AFB7C1");ScrollHover=ColorTranslator.FromHtml(dark?"#97A3B2":"#7F8B99");}
         public static Label Label(string text,float size=10,Color? color=null) { return new Label { Text=text,Tag=color==Muted?"muted":color==Accent?"accent":"text",AutoSize=false,BackColor=Color.Transparent,ForeColor=color??Text,Font=new Font("맑은 고딕",size),TextAlign=ContentAlignment.MiddleLeft,AutoEllipsis=true,UseMnemonic=false }; }
         public static Button Button(string text,int width=110) {
             var b=new Button { Text=text,Width=width,Height=32,FlatStyle=FlatStyle.Flat,BackColor=Back,ForeColor=Text,Font=new Font("맑은 고딕",9),Cursor=Cursors.Hand,Margin=new Padding(0,0,8,0),UseVisualStyleBackColor=false };
@@ -62,6 +62,7 @@ namespace CodexRelay {
         }
         static void ApplyPalette(Control c){
             if(c is Label){c.BackColor=Color.Transparent;c.ForeColor=(string)c.Tag=="muted"?Muted:(string)c.Tag=="accent"?Accent:Text;}
+            else if(c is ThemeScrollBar){c.BackColor=ScrollTrack;c.ForeColor=ScrollThumb;}
             else if(c is Button){var b=(Button)c;bool primary=(string)b.Tag=="primary";b.BackColor=primary?Accent:Back;b.ForeColor=primary?(IsDark?Back:Color.White):Text;b.FlatAppearance.BorderColor=primary?Accent:Line;b.FlatAppearance.MouseOverBackColor=primary?Accent:Panel;}
             else {c.BackColor=(string)c.Tag=="surface"?Panel:c.Parent!=null?c.Parent.BackColor:Back;c.ForeColor=Text;}
             foreach(Control child in c.Controls)ApplyPalette(child);c.Invalidate();
@@ -163,7 +164,7 @@ namespace CodexRelay {
         readonly NotifyIcon tray=new NotifyIcon();
         readonly ContextMenuStrip appMenu,accountMenu,trayMenu;
         readonly StartupRegistration startup;
-        readonly ToolStripMenuItem startupItem;
+        readonly ToolStripMenuItem startupItem,startupPathItem;
         Account menuAccount;
         readonly ToolTip tips=new ToolTip();
         Overlay overlay;
@@ -177,6 +178,7 @@ namespace CodexRelay {
             var title=Theme.Label("Codex Relay",17);title.Dock=DockStyle.Fill;head.Controls.Add(title,0,0);var darkLabel=Theme.Label("다크 모드",8.5f,Theme.Muted);darkLabel.Dock=DockStyle.Fill;head.Controls.Add(darkLabel,1,0);darkToggle.Text="";darkToggle.Tag="다크 모드";darkToggle.AccessibleName="다크 모드";darkToggle.Anchor=AnchorStyles.Left;darkToggle.Checked=engine.Vault.Data.Settings.DarkMode;head.Controls.Add(darkToggle,2,0);
             var more=Theme.Button("⋯",32);more.Anchor=AnchorStyles.Left;more.AccessibleName="앱 메뉴";head.Controls.Add(more,3,0);appMenu=Theme.Menu();appMenu.ShowCheckMargin=true;appMenu.Items.Add("현재 Codex 계정 저장",null,async(s,e)=>await SaveCurrent());startupItem=new ToolStripMenuItem("Windows 시작 시 실행"){CheckOnClick=false};startupItem.Click+=(s,e)=>ToggleStartup();appMenu.Items.Add(startupItem);appMenu.Opening+=(s,e)=>RefreshStartupState();appMenu.Items.Add(new ToolStripSeparator());appMenu.Items.Add("종료",null,async(s,e)=>await ExitSafely());more.Click+=(s,e)=>appMenu.Show(more,new Point(0,more.Height));
             appMenu.Items.Insert(appMenu.Items.Count-2,new ToolStripMenuItem("전환 로그 열기",null,(s,e)=>{try{string folder=Path.Combine(engine.Vault.DirectoryPath,"logs");Directory.CreateDirectory(folder);Process.Start(new ProcessStartInfo(folder){UseShellExecute=true});}catch(Exception ex){Report(ex);}}));
+            startupPathItem=new ToolStripMenuItem("시작프로그램 경로 변경",null,(s,e)=>ChangeStartupPath());appMenu.Items.Insert(appMenu.Items.IndexOf(startupItem)+1,startupPathItem);
             accountMenu=Theme.Menu();accountMenu.Items.Add("계정 전환",null,async(s,e)=>{var target=MenuAccount();if(target!=null)await SwitchSelected(target,false);});accountMenu.Items.Add("다시 로그인",null,async(s,e)=>{var target=MenuAccount();if(target!=null)await Reconnect(target);});accountMenu.Items.Add("이름 변경",null,(s,e)=>{var target=MenuAccount();if(target!=null)Rename(target);});accountMenu.Items.Add(new ToolStripSeparator());accountMenu.Items.Add("목록에서 제거",null,(s,e)=>{var target=MenuAccount();if(target!=null)Remove(target);});
             var add=Theme.Button("+ 계정 추가",118);add.Tag="primary";add.Anchor=AnchorStyles.Right;head.Controls.Add(add,4,0);add.Click+=async(s,e)=>{if(busy)return;if(demo){status.Text="미리보기에서는 로그인을 실행하지 않습니다.";return;}busy=true;try{using(var d=new LoginDialog(engine))d.ShowDialog(this);}finally{busy=false;}await RefreshUsage(true);};root.Controls.Add(head,0,0);
             metrics=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=4,Padding=new Padding(0,12,0,13),Margin=new Padding(0,0,0,16)};metrics.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,27));metrics.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,27));metrics.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,27));metrics.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,19));
@@ -184,7 +186,7 @@ namespace CodexRelay {
             var speedPanel=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,Padding=new Padding(12,0,0,0)};speedPanel.RowStyles.Add(new RowStyle(SizeType.Absolute,22));speedPanel.RowStyles.Add(new RowStyle(SizeType.Absolute,42));speedPanel.RowStyles.Add(new RowStyle(SizeType.Percent,100));var speedCaption=Theme.Label("세션 평균 TPS",8.5f,Theme.Muted);speedCaption.Dock=DockStyle.Fill;tps.Dock=DockStyle.Fill;metricNote.Dock=DockStyle.Fill;speedPanel.Controls.Add(speedCaption,0,0);speedPanel.Controls.Add(tps,0,1);speedPanel.Controls.Add(metricNote,0,2);metrics.Controls.Add(speedPanel,3,0);root.Controls.Add(metrics,0,1);
             var body=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=2,Margin=Padding.Empty};body.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));body.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,248));root.Controls.Add(body,0,2);
             var listPanel=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=4,Margin=new Padding(0,0,24,0)};listPanel.RowStyles.Add(new RowStyle(SizeType.Absolute,34));listPanel.RowStyles.Add(new RowStyle(SizeType.Absolute,30));listPanel.RowStyles.Add(new RowStyle(SizeType.Percent,100));listPanel.RowStyles.Add(new RowStyle(SizeType.Absolute,40));body.Controls.Add(listPanel,0,0);
-            var listHead=new Panel{Dock=DockStyle.Fill};var orderLabel=Theme.Label("계정 순서",10);orderLabel.SetBounds(0,0,200,26);listHead.Controls.Add(orderLabel);var hint=Theme.Label("위에서 아래로 자동 전환",8,Theme.Muted);hint.Dock=DockStyle.Right;hint.Width=145;hint.TextAlign=ContentAlignment.MiddleRight;listHead.Controls.Add(hint);listPanel.Controls.Add(listHead,0,0);SetupGrid();quotaHeader.Paint+=PaintQuotaHeader;listPanel.Controls.Add(quotaHeader,0,1);listPanel.Controls.Add(grid,0,2);
+            var listHead=new Panel{Dock=DockStyle.Fill};var orderLabel=Theme.Label("계정 순서",10);orderLabel.SetBounds(0,0,200,26);listHead.Controls.Add(orderLabel);var hint=Theme.Label("위에서 아래로 자동 전환",8,Theme.Muted);hint.Dock=DockStyle.Right;hint.Width=145;hint.TextAlign=ContentAlignment.MiddleRight;listHead.Controls.Add(hint);listPanel.Controls.Add(listHead,0,0);SetupGrid();quotaHeader.Paint+=PaintQuotaHeader;listPanel.Controls.Add(quotaHeader,0,1);listPanel.Controls.Add(new ThemedGridHost((SmoothGrid)grid),0,2);
             var listFoot=new Panel{Dock=DockStyle.Fill,Padding=new Padding(0,6,0,0)};countLabel.Dock=DockStyle.Fill;listFoot.Controls.Add(countLabel);var switcher=Theme.Button("계정 전환",118);switcher.Dock=DockStyle.Right;switcher.Click+=async(s,e)=>await SwitchSelected(Selected(),false);listFoot.Controls.Add(switcher);listPanel.Controls.Add(listFoot,0,3);
             var options=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=4,Tag="surface",Padding=new Padding(16,18,16,10),Margin=Padding.Empty};options.RowStyles.Add(new RowStyle(SizeType.Absolute,86));options.RowStyles.Add(new RowStyle(SizeType.Absolute,86));options.RowStyles.Add(new RowStyle(SizeType.Absolute,116));options.RowStyles.Add(new RowStyle(SizeType.Percent,100));body.Controls.Add(options,1,0);
             Option(options,0,rotate,"자동 계정 전환","한도 소진 시 다음 계정으로 전환",engine.Vault.Data.Settings.AutoRotate);Option(options,1,warm,"자동 웜업","한도 구간마다 요청 1회",engine.Vault.Data.Settings.AutoWarm);
@@ -207,12 +209,14 @@ namespace CodexRelay {
         }
         public async Task InitializeAsync(){
             if(initialized)return;initialized=true;string startupError=null;bool importCurrent=!File.Exists(engine.Vault.FilePath);
-            // Keep startup repair independent from network requests and app initialization.
-            if(!demo)try{startup.Reconcile(engine.Vault.Data.Settings,()=>engine.Vault.Save());}catch(Exception ex){startupError="시작프로그램 설정 반영 실패: "+Engine.Friendly(ex);}
+            // Ask before relocating startup, independently of network initialization.
+            if(!demo)try{startup.Reconcile(engine.Vault.Data.Settings,()=>engine.Vault.Save(),ConfirmStartupPath);}catch(Exception ex){startupError="시작프로그램 설정 확인 실패: "+Engine.Friendly(ex);}
             try{ApplyTheme();engine.SyncLive(importCurrent);if(!demo)await Task.Run(()=>telemetry.Start());Render();UpdateOverlay();tick.Start();await RefreshUsage(true);}catch(Exception ex){Report(ex);}
             finally{RefreshStartupState();if(startupError!=null)status.Text=startupError;}
         }
-        void RefreshStartupState(){try{startupItem.Checked=startup.IsEnabled;startupItem.Enabled=true;}catch{startupItem.Checked=false;startupItem.Enabled=false;status.Text="시작프로그램 등록 상태를 읽지 못했습니다.";}}
+        void RefreshStartupState(){try{startupItem.Checked=startup.IsEnabled;startupItem.Enabled=true;startupPathItem.Enabled=startup.CanChangePath;}catch{startupItem.Checked=false;startupItem.Enabled=false;startupPathItem.Enabled=false;status.Text="시작프로그램 등록 상태를 읽지 못했습니다.";}}
+        bool ConfirmStartupPath(StartupPathChange change){using(var dialog=new StartupPathDialog(change))return dialog.ShowDialog(this)==DialogResult.OK;}
+        void ChangeStartupPath(){if(demo){status.Text="미리보기에서는 시작프로그램을 변경하지 않습니다.";return;}try{bool changed=startup.ChangePath(engine.Vault.Data.Settings,()=>engine.Vault.Save(),ConfirmStartupPath);status.Text=changed?"시작프로그램을 현재 경로로 변경했습니다.":"기존 시작프로그램 등록을 유지합니다.";}catch(Exception ex){Report(ex);}finally{RefreshStartupState();}}
         void ToggleStartup(){if(demo){status.Text="미리보기에서는 시작프로그램을 변경하지 않습니다.";return;}try{bool enable=!startup.IsEnabled;startup.SetPreference(engine.Vault.Data.Settings,enable,()=>engine.Vault.Save());status.Text=enable?"Windows 시작 시 실행하도록 등록했습니다.":"시작프로그램 등록을 해제했습니다.";}catch(Exception ex){Report(ex);}finally{RefreshStartupState();}}
         void SetupGrid() {
             grid.Dock=DockStyle.Fill;grid.Margin=new Padding(3,0,3,3);grid.BackgroundColor=Theme.Back;grid.BorderStyle=BorderStyle.None;grid.AutoGenerateColumns=false;grid.AllowUserToAddRows=false;grid.AllowUserToDeleteRows=false;grid.AllowUserToResizeRows=false;grid.AllowUserToResizeColumns=false;grid.ReadOnly=true;grid.MultiSelect=false;grid.RowHeadersVisible=false;grid.SelectionMode=DataGridViewSelectionMode.FullRowSelect;grid.EnableHeadersVisualStyles=false;grid.ColumnHeadersVisible=false;grid.ColumnHeadersHeightSizeMode=DataGridViewColumnHeadersHeightSizeMode.DisableResizing;grid.ColumnHeadersHeight=30;grid.ColumnHeadersBorderStyle=DataGridViewHeaderBorderStyle.None;grid.ShowCellToolTips=false;
@@ -220,12 +224,13 @@ namespace CodexRelay {
             string[] names={"순서","계정",QuotaLabels.FiveHour,QuotaLabels.Weekly,"위로","아래로","계정 메뉴"};for(int i=0;i<names.Length;i++){var c=new DataGridViewTextBoxColumn{HeaderText=i>=1&&i<=3?names[i]:"",Name=names[i],SortMode=DataGridViewColumnSortMode.NotSortable};if(i==1)c.FillWeight=100;else{c.AutoSizeMode=DataGridViewAutoSizeColumnMode.None;c.Width=i==0?28:i==2||i==3?132:28;}grid.Columns.Add(c);}
             grid.CellPainting+=PaintCell;
             grid.ColumnWidthChanged+=(s,e)=>quotaHeader.Invalidate();grid.ColumnStateChanged+=(s,e)=>quotaHeader.Invalidate();
+            grid.Scroll+=(s,e)=>quotaHeader.Invalidate();
             grid.CellClick+=(s,e)=>{if(e.RowIndex<0||busy)return;grid.Rows[e.RowIndex].Selected=true;try{if(e.ColumnIndex==4)MoveAccount(-1);else if(e.ColumnIndex==5)MoveAccount(1);else if(e.ColumnIndex==6)ShowAccountMenu(grid.PointToClient(Cursor.Position));}catch(Exception ex){Report(ex);}};
             grid.KeyDown+=(s,e)=>{if(busy)return;if(e.Alt&&(e.KeyCode==Keys.Up||e.KeyCode==Keys.Down)){MoveAccount(e.KeyCode==Keys.Up?-1:1);e.Handled=true;}if(e.KeyCode==Keys.Apps){ShowAccountMenu(new Point(30,40));e.Handled=true;}};
             grid.CellMouseClick+=(s,e)=>{if(e.RowIndex>=0&&e.Button==MouseButtons.Right){grid.Rows[e.RowIndex].Selected=true;ShowAccountMenu(grid.PointToClient(Cursor.Position));}};
         }
         string AccountState(Account a){var u=a.Usage;return a.NeedsLogin?"재로그인 필요":u!=null&&!string.IsNullOrEmpty(u.Error)?"조회 실패":u!=null&&!u.Fresh(Clock.Now)?"갱신 필요":a.Id==engine.ActiveId?"사용 중":u!=null&&u.Exhausted?"한도 소진":"대기";}
-        void PaintQuotaHeader(object sender,PaintEventArgs e){var g=e.Graphics;float scale=g.DpiX/96f;g.Clear(Theme.Back);int x=0;foreach(DataGridViewColumn column in grid.Columns){if(!column.Visible)continue;var r=new Rectangle(x+(int)(7*scale),0,Math.Max(0,column.Width-(int)(14*scale)),quotaHeader.Height);TextRenderer.DrawText(g,column.HeaderText,rowSmallFont,r,Theme.Muted,TextFormatFlags.Left|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPadding);x+=column.Width;}using(var p=new Pen(Theme.Line))g.DrawLine(p,0,quotaHeader.Height-1,quotaHeader.Width,quotaHeader.Height-1);}
+        void PaintQuotaHeader(object sender,PaintEventArgs e){var g=e.Graphics;float scale=g.DpiX/96f;g.Clear(Theme.Back);int x=-grid.HorizontalScrollingOffset;foreach(DataGridViewColumn column in grid.Columns){if(!column.Visible)continue;var r=new Rectangle(x+(int)(7*scale),0,Math.Max(0,column.Width-(int)(14*scale)),quotaHeader.Height);TextRenderer.DrawText(g,column.HeaderText,rowSmallFont,r,Theme.Muted,TextFormatFlags.Left|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPadding);x+=column.Width;}using(var p=new Pen(Theme.Line))g.DrawLine(p,0,quotaHeader.Height-1,quotaHeader.Width,quotaHeader.Height-1);}
         void PaintCell(object sender,DataGridViewCellPaintingEventArgs e){
             if(e.RowIndex<0)return;var g=e.Graphics;float scale=g.DpiX/96f;var r=e.CellBounds;
             var a=grid.Rows[e.RowIndex].Tag as Account;if(a==null)return;bool selected=(e.State&DataGridViewElementStates.Selected)!=0;using(var b=new SolidBrush(selected?Theme.Panel:Theme.Back))g.FillRectangle(b,r);using(var p=new Pen(Theme.Line))g.DrawLine(p,r.Left,r.Bottom-1,r.Right,r.Bottom-1);
