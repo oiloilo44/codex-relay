@@ -14,7 +14,7 @@ Example with demo accounts. The app interface is currently in Korean.
 - View 5-hour and weekly limits, and switch to the next available account when a limit is reached
 - Warm up each available account once per quota window
 - Display remaining quota and session-average TPS in an overlay, with dark mode and adjustable transparency
-- Run at Windows sign-in and update the startup path after moving the EXE
+- Run at Windows sign-in and confirm startup path changes after moving the EXE
 
 ## Getting started
 
@@ -27,7 +27,11 @@ Requires Windows 10/11 x64 and .NET Framework 4.8. No installation or administra
 
 Dark mode is on by default, and your choice is saved. The overlay starts enabled on every launch and initially appears at the bottom right of the screen. Drag it to move it, or double-click it to open the main window. Its position and transparency are saved.
 
+Account-list scrollbars and startup-path fields share one style that follows light/dark mode changes. Scrollbars hide when the contents fit. Mouse-wheel, thumb-drag, and keyboard scrolling remain available, and path text can still be selected for copying.
+
 The window's **X** button hides the app to the system tray. To quit, select **⋯ → 종료** (Exit). Use **⋯ → Windows 시작 시 실행** (Run at Windows sign-in) to enable or disable startup. After moving the EXE, quit the running instance and launch it once from the new location.
+
+If another path is registered, Relay shows the existing registration and the current executable. It changes the entry only when you choose **현재 경로로 변경** (Use current path). The default, Enter, and Escape all keep the existing entry. Declined path pairs are remembered; use **⋯ → 시작프로그램 경로 변경** (Change startup path) to reconsider. Launching Relay alone never creates or removes a startup entry.
 
 ## How it works
 
@@ -35,6 +39,7 @@ The window's **X** button hides the app to the system tray. To quit, select **�
 - Manual switching also allows accounts with exhausted or unavailable quota, including accounts you want to use with credits. In this case, automatic switching is turned off to keep your selection. The active account is checked every 10 seconds, or every 5 seconds when 5% or less remains; other accounts are checked every 90 seconds. Network and server delays can affect these timings.
 - Accounts with rejected credentials show **재로그인 필요** (Sign-in required). Choose **다시 로그인** (Sign in again) from the account menu to update credentials while keeping its name and list order. These accounts are excluded from automatic checks and switching until reconnected.
 - When Codex is running, switching requires confirmation and may interrupt ongoing work. Relay requests the app's normal quit command (`Ctrl+Q`) and waits up to 60 seconds, switching and reopening as soon as exit is confirmed. Force-closing remaining processes after the timeout requires separate confirmation; declining keeps the current authentication. If you customized the quit shortcut, quit Codex manually before switching.
+- Packaged Codex is reopened through the Windows application activation API; unpackaged executables are started directly from their verified absolute paths. If reopening fails, the completed account switch and previous authentication backup remain intact. Relay asks you to launch Codex manually and records the Windows error code in the switch log.
 - The quit target is identified by its version-independent Windows package family and window features. If its menu is missing, Relay checks the same window up to four times. A persistently hidden menu requires taskbar identity, native resize/minimize/maximize support, and matching accessibility capabilities. Tool and modal windows are excluded. Changed process/window identity or ambiguous candidates stop switching, and identity is checked again immediately before input.
 - A process query failure during shutdown is checked against a retained handle to the same process object. Only confirmed exits are excluded. A live process that remains unreadable still blocks authentication replacement; its PID, query stage, and Windows error code are recorded in the switch log.
 - Warm-up sends a model request and consumes a small amount of quota. Quota checks do not send model requests.
@@ -62,6 +67,8 @@ Run in PowerShell on Windows. No NuGet packages or separate .NET SDK are require
 ```
 
 The app is built to `bin\CodexRelay.exe`. Default tests use synthetic data without accessing real accounts. Run `CodexRelay.Tests.exe --render-hidden` for UI checks.
+
+The build uses the standard C# compiler, without packing, obfuscation, a separate loader, or code signing. `CodexRelay.Tests.exe --activation-probe` checks the native activation API with an unregistered app ID without launching Codex. `--activation-existing` activates an already running Codex instance and may bring its window forward; it does not close the app or switch accounts.
 
 Run `CodexRelay.Tests.exe --window-readonly` to verify selection of the running Codex application window. It only reads window information, without sending input, changing focus, closing processes, or switching accounts.
 
