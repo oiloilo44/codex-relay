@@ -34,13 +34,14 @@ namespace CodexRelay {
     internal sealed class FakeGuard : IProcessGuard,IQuitObserver {
         public List<AppProcess> Items=new List<AppProcess>();
         public int Closed,Opened;
+        public Exception OpenError;
         public Action<List<AppProcess>,bool> OnClose;
         public Func<List<AppProcess>> OnSnapshot;
         public QuitObservation Observation=new QuitObservation();
         public QuitObservation ObserveQuit(){return Observation;}
         public List<AppProcess> Snapshot(){return OnSnapshot==null?Items.ToList():OnSnapshot();}
         public Task Close(List<AppProcess> x,bool force,CancellationToken ct,Action<string,string> log){ct.ThrowIfCancellationRequested();Closed++;if(OnClose!=null)OnClose(x,force);else Items.Clear();return Task.FromResult(0);}
-        public void Reopen(string path){if(path!=null)Opened++;}
+        public void Reopen(string path){if(path!=null)Opened++;if(OpenError!=null)throw OpenError;}
     }
     internal sealed class FakeHttp : HttpMessageHandler {
         public Func<HttpRequestMessage,HttpResponseMessage> Handler;
@@ -63,6 +64,7 @@ namespace CodexRelay {
             if(args.Contains("--telemetry-readonly")){try{TelemetryReadOnly();}catch(Exception e){Console.Error.WriteLine("FAIL "+e);Environment.ExitCode=1;}return;}
             if(args.Contains("--window-readonly")){try{WindowReadOnly().GetAwaiter().GetResult();}catch(Exception e){Console.Error.WriteLine("FAIL "+e);Environment.ExitCode=1;}return;}
             if(args.Contains("--overlay-window-check")){try{OverlayWindowChecks();Console.WriteLine("TOTAL "+count+" OVERLAY WINDOW CHECKS PASSED");}catch(Exception e){Console.Error.WriteLine("FAIL "+e);Environment.ExitCode=1;}return;}
+            if(args.Contains("--activation-probe")||args.Contains("--activation-existing")){try{ActivationProbe(args.Contains("--activation-existing"));Console.WriteLine("TOTAL "+count+" ACTIVATION CHECKS PASSED");}catch(Exception e){Console.Error.WriteLine("FAIL "+e);Environment.ExitCode=1;}return;}
             try{if(args.Contains("--render-hidden")){HiddenRender();Console.WriteLine("TOTAL "+count+" HIDDEN UI CHECKS PASSED");return;}if(args.Contains("--ui-render")){UiRender();Console.WriteLine("TOTAL "+count+" UI CHECKS PASSED");return;}if(args.Contains("--live-readonly")||args.Contains("--live-warmup-once")){LiveReadOnly(args.Contains("--live-warmup-once")).GetAwaiter().GetResult();return;}Run().GetAwaiter().GetResult(); Console.WriteLine("TOTAL "+count+" PASSED");}catch(Exception e){Console.Error.WriteLine("FAIL "+e);Environment.ExitCode=1;}
         }
         static async Task LiveReadOnly(bool warmOnce) {
@@ -76,6 +78,8 @@ namespace CodexRelay {
         static async Task Run() {
             long now=Clock.Now;
             StartupChecks();
+            LaunchChecks();
+            await LaunchFailureSwitchChecks();
             QuitRequestChecks();
             WindowSelectionChecks();
             await WindowRetryChecks();

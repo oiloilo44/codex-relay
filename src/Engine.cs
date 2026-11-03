@@ -20,7 +20,9 @@ namespace CodexRelay {
     }
     internal sealed class ProcessGuard : IProcessGuard,IQuitObserver {
         readonly Dictionary<IntPtr,int> quitWindows=new Dictionary<IntPtr,int>();
-        string reopenApplicationId;
+        string reopenApplicationId,reopenPath;
+        readonly IApplicationLauncher launcher;
+        public ProcessGuard(IApplicationLauncher launcher=null){this.launcher=launcher??new WindowsApplicationLauncher();}
         internal Action<string,string> DiagnosticLog;
         public QuitObservation ObserveQuit() {
             var result=new QuitObservation{Sent=quitWindows.Count};
@@ -50,19 +52,19 @@ namespace CodexRelay {
                     log("FORCE_CLOSE_REQUEST","pid="+item.Id+"; started="+item.Started);p.Kill();
                 }}catch(ArgumentException){}catch(InvalidOperationException){}return;
             }
-            quitWindows.Clear();reopenApplicationId=null;
+            quitWindows.Clear();reopenApplicationId=null;reopenPath=null;
             if(!items.Any(p=>p.Desktop))return;
             var selected=await DesktopWindows.FindForSwitch(items,ct,log);
             reopenApplicationId=selected.Process.ApplicationId;
+            reopenPath=selected.Process.Path;
             log("QUIT_PROCESS","pid="+selected.Process.Id+"; started="+selected.Process.Started+"; path="+selected.Process.Path);
             if(!await DesktopQuit.RequestAsync(new QuitWindow(()=>DesktopWindows.Revalidate(selected)),selected.Handle,selected.Process.Id,ct,log))
                 throw new QuitRequestException("종료 입력을 전달하지 못했습니다. Codex 창의 포커스와 눌린 키를 확인한 뒤 다시 전환하세요. 전환 로그에 원인을 기록했습니다.");
             quitWindows[selected.Handle]=selected.Process.Id;
         }
         public void Reopen(string path) {
-            if(string.IsNullOrEmpty(path))return;
-            if(!string.IsNullOrEmpty(reopenApplicationId)){Process.Start(new ProcessStartInfo("explorer.exe","shell:AppsFolder\\"+reopenApplicationId){UseShellExecute=true});return;}
-            if(File.Exists(path))Process.Start(new ProcessStartInfo(path){UseShellExecute=true});
+            try{if(!string.IsNullOrEmpty(path))DesktopLaunch.Reopen(reopenPath??path,reopenApplicationId,launcher,DiagnosticLog);}
+            finally{reopenApplicationId=null;reopenPath=null;}
         }
     }
     internal sealed class QuitRequestException : InvalidOperationException { public QuitRequestException(string message):base(message){} }
@@ -234,7 +236,7 @@ namespace CodexRelay {
                 trace.Write("AUTH_REPLACED","target login activated; credentials are not logged");
                 bool paused=!automatic && Vault.Data.Settings.AutoRotate && (target.Usage==null || !target.Usage.Available(Clock.Now));
                 if(paused){Vault.Data.Settings.AutoRotate=false;Vault.Save();}
-                try { processes.Reopen(reopen);trace.Write("REOPEN_REQUESTED",reopen??"no desktop to reopen"); } catch {trace.Write("REOPEN_FAILED","launch manually");return "계정 전환 완료. Codex 앱을 직접 실행하세요."; }
+                try { processes.Reopen(reopen);trace.Write("REOPEN_REQUESTED",reopen??"no desktop to reopen"); } catch(Exception ex) {trace.Write("REOPEN_FAILED",ex.GetType().Name+"; HRESULT=0x"+ex.HResult.ToString("X8")+"; launch manually");return "계정 전환 완료. Codex 앱을 직접 실행하세요."+(paused?" · 선택 계정 유지: 자동 전환 OFF":""); }
                 return "계정 전환 완료: "+target.Name+(paused?" · 선택 계정 유지: 자동 전환 OFF":"");
             } catch(Exception ex){if(trace!=null)trace.Write("SWITCH_FAILED",ex.GetType().Name+": "+Friendly(ex));throw;}
             finally {try{if(nativeProcesses!=null)nativeProcesses.DiagnosticLog=null;if(trace!=null){trace.Write("SWITCH_END","operation ended");trace.Dispose();}}finally{gate.Release();} }
